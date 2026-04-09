@@ -1,0 +1,49 @@
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+env/
+venv/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── Docker ────────────────────────────────────────────────────────────────
+# Don't commit large model weight files
+*.h5
+*.pt
+*.pth
+*.ckpt
+
+# ── Data / outputs ────────────────────────────────────────────────────────
+# These are runtime-generated inside Docker volumes — not source code
+*.npy
+*.npz
+*.wav
+*.lab
+*.csv
+
+# ── macOS ─────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ── IDE ───────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Secrets / env ─────────────────────────────────────────────────────────
+.env
+.env.*
+secrets/

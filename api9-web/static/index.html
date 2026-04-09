@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stress Prediction</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0f1117;
+      --surface:  #1a1d27;
+      --border:   #2e3147;
+      --accent:   #6c63ff;
+      --accent2:  #a78bfa;
+      --text:     #e8e8f0;
+      --muted:    #7b7d8f;
+      --correct:  #34d399;
+      --incorrect:#f87171;
+      --stress:   #facc15;
+      --unstress: #64748b;
+      --radius:   12px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px 60px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    header h1 { font-size: 2rem; font-weight: 700; letter-spacing: -.5px; }
+    header p  { color: var(--muted); margin-top: 6px; font-size: .95rem; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      width: 100%;
+      max-width: 680px;
+    }
+
+    /* ── Drop zones ── */
+    .drop-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 28px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(108,99,255,.07);
+    }
+    .drop-zone.has-file {
+      border-color: var(--correct);
+      background: rgba(52,211,153,.06);
+    }
+    .drop-zone input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .drop-zone .icon { font-size: 2rem; margin-bottom: 8px; }
+    .drop-zone .label { font-size: .8rem; color: var(--muted); margin-top: 4px; }
+    .drop-zone .filename {
+      font-size: .85rem; color: var(--correct); font-weight: 600;
+      margin-top: 6px; word-break: break-all;
+    }
+
+    /* ── Button ── */
+    #startBtn {
+      width: 100%;
+      padding: 14px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s, opacity .2s;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+    }
+    #startBtn:hover:not(:disabled) { background: var(--accent2); }
+    #startBtn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── Spinner ── */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 3px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Status message ── */
+    #status {
+      margin-top: 14px;
+      font-size: .85rem;
+      color: var(--muted);
+      text-align: center;
+      min-height: 20px;
+    }
+    #status.error { color: var(--incorrect); }
+
+    /* ── Results ── */
+    #results { margin-top: 32px; width: 100%; max-width: 680px; }
+
+    .results-header {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 16px;
+    }
+    .results-header h2 { font-size: 1.1rem; font-weight: 600; }
+    .summary-badge {
+      font-size: .82rem; color: var(--muted);
+    }
+    .summary-badge span { font-weight: 600; }
+    .summary-badge .c { color: var(--correct); }
+    .summary-badge .i { color: var(--incorrect); }
+
+    .word-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+      margin-bottom: 14px;
+      position: relative;
+    }
+    .word-card.correct  { border-left: 4px solid var(--correct); }
+    .word-card.incorrect { border-left: 4px solid var(--incorrect); }
+
+    .word-title {
+      font-size: 1.25rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .5px; margin-bottom: 14px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .verdict {
+      font-size: .72rem; font-weight: 700; padding: 3px 9px;
+      border-radius: 99px; text-transform: uppercase; letter-spacing: .5px;
+    }
+    .verdict.correct   { background: rgba(52,211,153,.15); color: var(--correct); }
+    .verdict.incorrect { background: rgba(248,113,113,.15); color: var(--incorrect); }
+
+    .syl-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .88rem;
+    }
+    .syl-table th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 500;
+      padding: 0 10px 8px 0;
+      font-size: .78rem;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    .syl-table td {
+      padding: 6px 10px 6px 0;
+      border-top: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .syl-table td:first-child { font-family: monospace; font-size: .9rem; }
+
+    .pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 99px;
+      font-size: .8rem; font-weight: 600;
+    }
+    .pill.stressed   { background: rgba(250,204,21,.15); color: var(--stress); }
+    .pill.unstressed { background: rgba(100,116,139,.15); color: var(--unstress); }
+    .pill.match   { }
+    .pill.mismatch { outline: 2px solid var(--incorrect); }
+
+    .no-results {
+      text-align: center; color: var(--muted); padding: 30px 0;
+      font-size: .9rem;
+    }
+
+    /* Model toggle */
+    .model-toggle {
+      display: flex; align-items: center; justify-content: center;
+      gap: 14px; margin-bottom: 20px;
+      font-size: .9rem; font-weight: 600;
+    }
+    .model-toggle span { color: var(--muted); transition: color .2s; }
+    .model-toggle span.active { color: var(--text); }
+    .toggle-switch { position: relative; width: 56px; height: 28px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .toggle-track {
+      position: absolute; inset: 0; background: var(--accent);
+      border-radius: 99px; cursor: pointer; transition: background .25s;
+    }
+    .toggle-switch input:checked + .toggle-track { background: #7c3aed; }
+    .toggle-track::before {
+      content: ''; position: absolute; left: 4px; top: 4px;
+      width: 20px; height: 20px; background: #fff;
+      border-radius: 50%; transition: transform .25s;
+    }
+    .toggle-switch input:checked + .toggle-track::before { transform: translateX(28px); }
+    .model-badge {
+      display: inline-block; font-size: .72rem; font-weight: 700;
+      padding: 2px 8px; border-radius: 99px;
+      text-transform: uppercase; letter-spacing: .5px; margin-left: 8px;
+    }
+    .model-badge.postnet { background: rgba(108,99,255,.2); color: var(--accent2); }
+    .model-badge.prenet  { background: rgba(124,58,237,.25); color: #c4b5fd; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🎙️ Stress Prediction</h1>
+  <p>Drop a <code>.wav</code> and <code>.lab</code> file to run the full pipeline</p>
+</header>
+
+<div class="card">
+  <div class="drop-row">
+    <!-- WAV drop zone -->
+    <div class="drop-zone" id="wavZone">
+      <input type="file" id="wavInput" accept=".wav" />
+      <div class="icon">🎵</div>
+      <div><strong>.wav</strong> audio file</div>
+      <div class="label">click or drag &amp; drop</div>
+      <div class="filename" id="wavName"></div>
+    </div>
+
+    <!-- LAB drop zone -->
+    <div class="drop-zone" id="labZone">
+      <input type="file" id="labInput" accept=".lab" />
+      <div class="icon">📝</div>
+      <div><strong>.lab</strong> transcript</div>
+      <div class="label">click or drag &amp; drop</div>
+      <div class="filename" id="labName"></div>
+    </div>
+  </div>
+
+  <!-- Model selector -->
+  <div class="model-toggle">
+    <span id="labelPrenet" class="active">PreNet</span>
+    <label class="toggle-switch">
+      <input type="checkbox" id="modelToggle" />
+      <div class="toggle-track"></div>
+    </label>
+    <span id="labelPostnet">PostNet</span>
+  </div>
+
+  <button id="startBtn" disabled>
+    <span id="btnLabel">▶ Start</span>
+  </button>
+  <div id="status"></div>
+</div>
+
+<div id="results"></div>
+
+<script>
+  // ── File handling ──────────────────────────────────────────────────────
+  const wavInput = document.getElementById('wavInput');
+  const labInput = document.getElementById('labInput');
+  const startBtn = document.getElementById('startBtn');
+  const statusEl = document.getElementById('status');
+  const resultsEl = document.getElementById('results');
+
+  let wavFile = null, labFile = null;
+
+  // Model toggle
+  const modelToggle  = document.getElementById('modelToggle');
+  const labelPrenet  = document.getElementById('labelPrenet');
+  const labelPostnet = document.getElementById('labelPostnet');
+  function getModel() { return modelToggle.checked ? 'postnet' : 'prenet'; }
+
+  function setupZone(zone, input, nameEl, mimeHint, onFile) {
+    input.addEventListener('change', () => {
+      if (input.files[0]) { onFile(input.files[0], zone, nameEl); }
+    });
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      const f = e.dataTransfer.files[0];
+      if (f) onFile(f, zone, nameEl);
+    });
+  }
+
+  function handleFile(file, zone, nameEl, setter) {
+    setter(file);
+    zone.classList.add('has-file');
+    nameEl.textContent = file.name;
+    checkReady();
+  }
+
+  setupZone(document.getElementById('wavZone'), wavInput, document.getElementById('wavName'), 'audio/wav',
+    (f, z, n) => handleFile(f, z, n, v => wavFile = v));
+  setupZone(document.getElementById('labZone'), labInput, document.getElementById('labName'), 'text/plain',
+    (f, z, n) => handleFile(f, z, n, v => labFile = v));
+
+  function checkReady() {
+    startBtn.disabled = !(wavFile && labFile);
+  }
+
+  // ── Pipeline call ─────────────────────────────────────────────────────
+  let lastData = null;   // cache both result sets for instant toggle
+
+  startBtn.addEventListener('click', async () => {
+    setLoading(true, 'Running pipeline — both models in parallel… (may take a minute)');
+    resultsEl.innerHTML = '';
+    lastData = null;
+
+    const fd = new FormData();
+    fd.append('wav_file', wavFile, wavFile.name);
+    fd.append('lab_file', labFile, labFile.name);
+    // Note: no 'model' field — API always runs both
+
+    try {
+      const res = await fetch('/api/run', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(JSON.stringify(err.detail ?? err, null, 2));
+      }
+      const data = await res.json();
+      setLoading(false, '');
+      lastData = data;
+      renderResults(data);
+    } catch (e) {
+      setLoading(false, '');
+      statusEl.textContent = '❌ ' + e.message;
+      statusEl.className = 'error';
+    }
+  });
+
+  // Toggle instantly swaps display — no re-fetch
+  modelToggle.addEventListener('change', () => {
+    const isPost = modelToggle.checked;
+    labelPrenet.classList.toggle('active', !isPost);
+    labelPostnet.classList.toggle('active',  isPost);
+    if (lastData) renderResults(lastData);
+  });
+
+  function setLoading(on, msg) {
+    const label = document.getElementById('btnLabel');
+    if (on) {
+      label.innerHTML = '<div class="spinner"></div> Running…';
+      startBtn.disabled = true;
+    } else {
+      label.textContent = '▶ Start';
+      startBtn.disabled = false;
+    }
+    statusEl.textContent = msg;
+    statusEl.className = '';
+  }
+
+  // ── Render results ────────────────────────────────────────────────────
+  function renderResults(data) {
+    const model = getModel();   // 'prenet' or 'postnet'
+
+    // New API shape: { prenet: {results, words_evaluated}, postnet: {results, words_evaluated} }
+    // Fallback to legacy flat shape for backwards compat
+    const bucket = data[model] ?? {};
+    const words  = bucket.results ?? data.results ?? [];
+
+    const timings  = data.pipeline_timings ?? {};
+    const totalMs  = Object.values(timings).reduce((a, b) => a + b, 0);
+
+    if (!words.length) {
+      resultsEl.innerHTML = `
+        <div class="card no-results">
+          <span class="model-badge ${model}" style="margin-bottom:10px;display:inline-block">${model}</span><br>
+          No multi-syllable words found in "<strong>${data.transcript}</strong>".
+          All words are monosyllabic — nothing to evaluate.
+        </div>`;
+      return;
+    }
+
+    const correct   = words.filter(w => w.result === 'correct').length;
+    const incorrect = words.length - correct;
+
+    let html = `
+      <div class="results-header">
+        <h2>Results <span class="model-badge ${model}">${model}</span>
+          &nbsp;<em style="font-weight:400;font-size:.95rem;color:var(--muted)">${data.transcript}</em></h2>
+        <div class="summary-badge">
+          <span class="c">✔ ${correct}</span> correct &nbsp;
+          <span class="i">✘ ${incorrect}</span> incorrect
+          &nbsp;·&nbsp; ${(totalMs/1000).toFixed(1)}s
+        </div>
+      </div>`;
+
+    for (const word of words) {
+      html += `
+        <div class="word-card ${word.result}">
+          <div class="word-title">
+            ${word.word}
+            <span class="verdict ${word.result}">${word.result}</span>
+          </div>
+          <table class="syl-table">
+            <thead>
+              <tr>
+                <th>Syllable phones</th>
+                <th>True label</th>
+                <th>Predicted</th>
+              </tr>
+            </thead>
+            <tbody>`;
+
+      for (let i = 0; i < word.syllables.length; i++) {
+        const trueStressed = word.label[i] === 1;
+        const predStressed = word.predicted[i] === 1;
+        const match = trueStressed === predStressed;
+        const trueClass = trueStressed ? 'stressed' : 'unstressed';
+        const predClass = (predStressed ? 'stressed' : 'unstressed') + (match ? '' : ' mismatch');
+        html += `
+              <tr>
+                <td>${word.syllables[i]}</td>
+                <td><span class="pill ${trueClass}">${trueStressed ? '● stressed' : '○ unstressed'}</span></td>
+                <td><span class="pill ${predClass}">${predStressed ? '● stressed' : '○ unstressed'}${match ? '' : ' ⚠'}</span></td>
+              </tr>`;
+      }
+
+      html += `
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    resultsEl.innerHTML = html;
+  }
+</script>
+</body>
+</html>

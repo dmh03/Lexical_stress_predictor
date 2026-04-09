@@ -1,0 +1,231 @@
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# Shared named volumes — data flows from one API to the next via these volumes
+# ---------------------------------------------------------------------------
+volumes:
+  corpus:     # API1 output  → API2 input
+  mfa:        # API2 output  → API4 input
+  wavlm:      # API3 output  → API4 input
+  syls:       # API4 output  → API5 & API6 input
+  npz:        # API5 output  → API6 input; API6 output → API7 input
+  # weights volume removed — API7 uses a bind-mount to the host .h5 file directly
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+services:
+
+  # ── Stage 1 ── Prepare Corpus ────────────────────────────────────────────
+  api1-prepare-corpus:
+    build:
+      context: ./api1-prepare-corpus
+    container_name: api1-prepare-corpus
+    ports:
+      - "8001:8001"
+    volumes:
+      - corpus:/data/corpus
+    environment:
+      - CORPUS_ROOT=/data/corpus
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── Stage 2 ── MFA Alignment ─────────────────────────────────────────────
+  api2-mfa-align:
+    build:
+      context: ./api2-mfa-align
+    container_name: api2-mfa-align
+    user: root                   # volume is root-owned; run as root so MFA can write
+    ports:
+      - "8002:8002"
+    volumes:
+      - corpus:/data/corpus:ro   # read the corpus produced by API 1
+      - mfa:/data/mfa
+    environment:
+      - MFA_OUT_ROOT=/data/mfa
+      - MFA_TMP_ROOT=/tmp/mfa_tmp
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Stage 3 ── WavLM Feature Extraction ──────────────────────────────────
+  api3-wavlm-features:
+    build:
+      context: ./api3-wavlm-features
+    container_name: api3-wavlm-features
+    ports:
+      - "8003:8003"
+    volumes:
+      - corpus:/data/corpus:ro
+      - wavlm:/data/wavlm
+    environment:
+      - FEATS_ROOT=/data/wavlm
+      - WAVLM_MODEL_ID=microsoft/wavlm-large
+      - HF_HOME=/app/hf_cache
+    # Uncomment to enable GPU support (requires nvidia-docker runtime)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s   # model loading takes time
+
+  # ── Stage 4 ── Syllable Feature Averaging ────────────────────────────────
+  api4-syllable-average:
+    build:
+      context: ./api4-syllable-average
+    container_name: api4-syllable-average
+    ports:
+      - "8004:8004"
+    volumes:
+      - mfa:/data/mfa:ro
+      - wavlm:/data/wavlm:ro
+      - syls:/data/syls
+    environment:
+      - SYLS_ROOT=/data/syls
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── Stage 5 ── Build NPZ Datasets ────────────────────────────────────────
+  api5-build-npz:
+    build:
+      context: ./api5-build-npz
+    container_name: api5-build-npz
+    ports:
+      - "8005:8005"
+    volumes:
+      - syls:/data/syls:ro
+      - npz:/data/npz
+    environment:
+      - SYLS_ROOT=/data/syls
+      - NPZ_ROOT=/data/npz
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── Stage 6 ── Build Padded NPZ (TDNN) ───────────────────────────────────────
+  api6-build-padded-npz:
+    build:
+      context: ./api6-build-padded-npz
+    container_name: api6-build-padded-npz
+    ports:
+      - "8006:8006"
+    volumes:
+      - syls:/data/syls     # rw: /upload-syllable writes here; /build reads here
+      - npz:/data/npz
+    environment:
+      - SYLS_ROOT=/data/syls
+      - NPZ_ROOT=/data/npz
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── Stage 7 ── PostNet TDNN Inference ────────────────────────────────────────
+  api7-postnet-infer:
+    build:
+      context: ./api7-postnet-infer
+    container_name: api7-postnet-infer
+    ports:
+      - "8007:8007"
+    volumes:
+      - npz:/data/npz:ro             # read padded NPZ files produced by API 6
+      - /Users/abdulrahmanalhabshi/Downloads/ML_PBS_and_Documentation/best_model_weights_WLM41.h5:/data/weights/best_model_weights_WLM41.h5:ro
+    environment:
+      - WEIGHTS_PATH=/data/weights/best_model_weights_WLM41.h5
+      - SEQUENCE_LENGTH=9            # must match pad_len used in API 6
+    # Uncomment to enable GPU support (requires nvidia-docker runtime)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s   # TF model loading takes a moment
+
+  # ── Stage 8 ── Pipeline Orchestrator ─────────────────────────────────────
+  api8-pipeline:
+    build:
+      context: ./api8-pipeline
+    container_name: api8-pipeline
+    ports:
+      - "8008:8008"
+    environment:
+      - API1_URL=http://api1-prepare-corpus:8001
+      - API2_URL=http://api2-mfa-align:8002
+      - API3_URL=http://api3-wavlm-features:8003
+      - API4_URL=http://api4-syllable-average:8004
+      - API6_URL=http://api6-build-padded-npz:8006
+      - API7_URL=http://api7-postnet-infer:8007
+      - HTTP_TIMEOUT=900
+      - PAD_LEN=9
+    depends_on:
+      - api1-prepare-corpus
+      - api2-mfa-align
+      - api3-wavlm-features
+      - api4-syllable-average
+      - api6-build-padded-npz
+      - api7-postnet-infer
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Web UI ── Stress Prediction Frontend ─────────────────────────────────
+  api9-web:
+    build:
+      context: ./api9-web
+    container_name: api9-web
+    ports:
+      - "8080:8080"
+    environment:
+      - API8_URL=http://api8-pipeline:8008
+      - HTTP_TIMEOUT=600
+    depends_on:
+      - api8-pipeline
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
