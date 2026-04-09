@@ -159,7 +159,7 @@ services:
       - "8007:8007"
     volumes:
       - npz:/data/npz:ro             # read padded NPZ files produced by API 6
-      - /Users/abdulrahmanalhabshi/Downloads/ML_PBS_and_Documentation/best_model_weights_WLM41.h5:/data/weights/best_model_weights_WLM41.h5:ro
+      - ./weights/best_model_weights_WLM41.h5:/data/weights/best_model_weights_WLM41.h5:ro
     environment:
       - WEIGHTS_PATH=/data/weights/best_model_weights_WLM41.h5
       - SEQUENCE_LENGTH=9            # must match pad_len used in API 6

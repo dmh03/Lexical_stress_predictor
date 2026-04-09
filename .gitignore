@@ -17,8 +17,9 @@ venv/
 .ipynb_checkpoints/
 
 # ── Docker ────────────────────────────────────────────────────────────────
-# Don't commit large model weight files
-*.h5
+# Allow model weights in the weights/ folder
+!weights/
+!weights/*.h5
 *.pt
 *.pth
 *.ckpt
